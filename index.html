@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="pt-BR">
     <head>
@@ -4595,6 +4596,7 @@
                         type="button"
                         class="btn btn-primary"
                         onclick="confirmarEntradaFila()"
+                        id="btn-confirmar-entrada"
                     >
                         <i class="fa-solid fa-check"></i> Confirmar &amp; Entrar
                         na Fila
@@ -4829,6 +4831,7 @@
                         class="btn btn-primary"
                         onclick="confirmarModalPagamento()"
                         data-testid="modal-confirmar-btn"
+                        id="btn-confirmar-modal-pagamento"
                     >
                         <i class="fa-solid fa-check"></i> Confirmar
                     </button>
@@ -5147,6 +5150,31 @@
                 calMesRef = null,
                 editUsuarioId = null,
                 ultimoLembreteAlerta = 0;
+
+            // ==================== TRAVA DE ENVIO DUPLICADO ====================
+            // Evita que cliques duplos (ou conexões lentas que atrasam a resposta do
+            // servidor) disparem duas vezes a mesma ação — o que causava agendamentos
+            // e pagamentos duplicados. Desabilita o botão assim que clicado e só
+            // libera quando a operação termina (sucesso ou erro).
+            function travarBotao(btn) {
+                if (!btn) return null;
+                if (btn.disabled) return null; // já em andamento — ignora o clique extra
+                const original = btn.innerHTML;
+                btn.disabled = true;
+                btn.style.opacity = "0.65";
+                btn.style.cursor = "not-allowed";
+                btn.innerHTML =
+                    '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando...';
+                return original;
+            }
+            function destravarBotao(btn, original) {
+                if (!btn) return;
+                btn.disabled = false;
+                btn.style.opacity = "";
+                btn.style.cursor = "";
+                if (original !== null && original !== undefined)
+                    btn.innerHTML = original;
+            }
 
             // ==================== AUTH ====================
             // Login/senha agora são geridos pelo Supabase Auth (auth.users), não mais por um
@@ -6006,179 +6034,209 @@
             }
             async function adicionarAgendamento(e) {
                 e.preventDefault();
-                const nome = $("ag-nome").value.trim();
-                if (!nome) return (toast("Informe o nome", "warn"), false);
-                const procs = coletarProcedimentos();
-                if (!procs.length)
-                    return (
-                        toast("Selecione pelo menos 1 procedimento", "warn"),
-                        false
-                    );
-                const dataBase = $("ag-data").value,
-                    hora = $("ag-hora").value;
-                // Verifica se está em bloqueio
-                if (dataBase && estaBloqueado(dataBase, hora))
-                    return (
-                        toast("❌ Este horário está bloqueado", "error"),
-                        false
-                    );
-                const recorrencia = $("ag-recorrencia")?.value || "nenhuma";
-                const repeticoes = parseInt($("ag-repeticoes")?.value) || 1;
-                const nascimento = $("ag-nasc").value,
-                    fone = $("ag-fone").value,
-                    duracao = parseInt($("ag-duracao").value) || 20,
-                    prioridade = $("ag-prioridade").value,
-                    obs = $("ag-obs").value;
-                const prev = procs.some(
-                    (x) =>
-                        /preven[çc][ãa]o|papan/i.test(x) && !/retorno/i.test(x),
-                )
-                    ? {
-                          cpf: ($("ag-prev-cpf") || {}).value || "",
-                          email: ($("ag-prev-email") || {}).value || "",
-                          rua: ($("ag-prev-rua") || {}).value || "",
-                          complemento: ($("ag-prev-comp") || {}).value || "",
-                          referencia: ($("ag-prev-ref") || {}).value || "",
-                          bairro: ($("ag-prev-bairro") || {}).value || "",
-                          municipio: ($("ag-prev-mun") || {}).value || "",
-                          uf: ($("ag-prev-uf") || {}).value || "",
-                          cep: ($("ag-prev-cep") || {}).value || "",
-                      }
-                    : null;
-
-                const pacienteId = await upsertPaciente(
-                    nome,
-                    nascimento,
-                    fone,
-                    procs.join(", "),
+                const btnSubmit = $("form-agenda").querySelector(
+                    'button[type="submit"]',
                 );
-                if (!pacienteId)
-                    return (toast("Falha ao salvar paciente", "error"), false);
+                const original = travarBotao(btnSubmit);
+                if (original === null && btnSubmit && btnSubmit.disabled)
+                    return false; // já processando — ignora clique duplicado
+                try {
+                    const nome = $("ag-nome").value.trim();
+                    if (!nome)
+                        return (toast("Informe o nome", "warn"), false);
+                    const procs = coletarProcedimentos();
+                    if (!procs.length)
+                        return (
+                            toast(
+                                "Selecione pelo menos 1 procedimento",
+                                "warn",
+                            ),
+                            false
+                        );
+                    const dataBase = $("ag-data").value,
+                        hora = $("ag-hora").value;
+                    // Verifica se está em bloqueio
+                    if (dataBase && estaBloqueado(dataBase, hora))
+                        return (
+                            toast("❌ Este horário está bloqueado", "error"),
+                            false
+                        );
+                    const recorrencia =
+                        $("ag-recorrencia")?.value || "nenhuma";
+                    const repeticoes =
+                        parseInt($("ag-repeticoes")?.value) || 1;
+                    const nascimento = $("ag-nasc").value,
+                        fone = $("ag-fone").value,
+                        duracao = parseInt($("ag-duracao").value) || 20,
+                        prioridade = $("ag-prioridade").value,
+                        obs = $("ag-obs").value;
+                    const prev = procs.some(
+                        (x) =>
+                            /preven[çc][ãa]o|papan/i.test(x) &&
+                            !/retorno/i.test(x),
+                    )
+                        ? {
+                              cpf: ($("ag-prev-cpf") || {}).value || "",
+                              email: ($("ag-prev-email") || {}).value || "",
+                              rua: ($("ag-prev-rua") || {}).value || "",
+                              complemento:
+                                  ($("ag-prev-comp") || {}).value || "",
+                              referencia:
+                                  ($("ag-prev-ref") || {}).value || "",
+                              bairro:
+                                  ($("ag-prev-bairro") || {}).value || "",
+                              municipio:
+                                  ($("ag-prev-mun") || {}).value || "",
+                              uf: ($("ag-prev-uf") || {}).value || "",
+                              cep: ($("ag-prev-cep") || {}).value || "",
+                          }
+                        : null;
 
-                if (editandoId) {
-                    const { error } = await supa
-                        .from("agendamentos")
-                        .update({
-                            data: dataBase,
-                            hora,
-                            duracao_min: duracao,
-                            prioridade,
-                            observacoes: obs || null,
-                        })
-                        .eq("id", editandoId);
-                    if (error)
-                        return (
-                            toast(
-                                "Falha ao atualizar agendamento: " +
-                                    error.message,
-                                "error",
-                            ),
-                            false
-                        );
-                    await supa
-                        .from("agendamento_procedimentos")
-                        .delete()
-                        .eq("agendamento_id", editandoId);
-                    await supa
-                        .from("agendamento_prevencao")
-                        .delete()
-                        .eq("agendamento_id", editandoId);
-                    await _salvarProcedimentosEPrevencao(
-                        editandoId,
-                        procs,
-                        prev,
+                    const pacienteId = await upsertPaciente(
+                        nome,
+                        nascimento,
+                        fone,
+                        procs.join(", "),
                     );
-                    toast("Agendamento atualizado", "success");
-                } else {
-                    const { data: row, error } = await supa
-                        .from("agendamentos")
-                        .insert({
-                            paciente_id: pacienteId,
-                            data: dataBase,
-                            hora,
-                            duracao_min: duracao,
-                            prioridade,
-                            observacoes: obs || null,
-                            status: "aguardando",
-                            confirmado: "pendente",
-                        })
-                        .select("id")
-                        .single();
-                    if (error)
+                    if (!pacienteId)
                         return (
-                            toast(
-                                "Falha ao criar agendamento: " + error.message,
-                                "error",
-                            ),
+                            toast("Falha ao salvar paciente", "error"),
                             false
                         );
-                    await _salvarProcedimentosEPrevencao(row.id, procs, prev);
-                    // Recorrência
-                    if (recorrencia !== "nenhuma" && repeticoes > 1) {
-                        const [y, m, d] = dataBase.split("-").map(Number);
-                        let criados = 1;
-                        for (let i = 1; i < repeticoes; i++) {
-                            const base = new Date(y, m - 1, d);
-                            if (recorrencia === "semanal")
-                                base.setDate(base.getDate() + 7 * i);
-                            else if (recorrencia === "quinzenal")
-                                base.setDate(base.getDate() + 14 * i);
-                            else if (recorrencia === "mensal")
-                                base.setMonth(base.getMonth() + i);
-                            const novaData = toISO(base);
-                            if (estaBloqueado(novaData, hora)) continue;
-                            const { data: filho, error: errFilho } = await supa
-                                .from("agendamentos")
-                                .insert({
-                                    paciente_id: pacienteId,
-                                    data: novaData,
-                                    hora,
-                                    duracao_min: duracao,
-                                    prioridade,
-                                    observacoes: obs || null,
-                                    status: "aguardando",
-                                    confirmado: "pendente",
-                                    serie_id: row.id,
-                                })
-                                .select("id")
-                                .single();
-                            if (errFilho) {
-                                console.warn(
-                                    "Falha ao criar ocorrência da recorrência",
-                                    errFilho,
-                                );
-                                continue;
-                            }
-                            await _salvarProcedimentosEPrevencao(
-                                filho.id,
-                                procs,
-                                prev,
+
+                    if (editandoId) {
+                        const { error } = await supa
+                            .from("agendamentos")
+                            .update({
+                                data: dataBase,
+                                hora,
+                                duracao_min: duracao,
+                                prioridade,
+                                observacoes: obs || null,
+                            })
+                            .eq("id", editandoId);
+                        if (error)
+                            return (
+                                toast(
+                                    "Falha ao atualizar agendamento: " +
+                                        error.message,
+                                    "error",
+                                ),
+                                false
                             );
-                            criados++;
-                        }
-                        toast(
-                            `${criados} agendamentos criados (recorrência ${recorrencia})`,
-                            "success",
+                        await supa
+                            .from("agendamento_procedimentos")
+                            .delete()
+                            .eq("agendamento_id", editandoId);
+                        await supa
+                            .from("agendamento_prevencao")
+                            .delete()
+                            .eq("agendamento_id", editandoId);
+                        await _salvarProcedimentosEPrevencao(
+                            editandoId,
+                            procs,
+                            prev,
                         );
+                        toast("Agendamento atualizado", "success");
                     } else {
-                        toast("Agendamento criado", "success");
+                        const { data: row, error } = await supa
+                            .from("agendamentos")
+                            .insert({
+                                paciente_id: pacienteId,
+                                data: dataBase,
+                                hora,
+                                duracao_min: duracao,
+                                prioridade,
+                                observacoes: obs || null,
+                                status: "aguardando",
+                                confirmado: "pendente",
+                            })
+                            .select("id")
+                            .single();
+                        if (error)
+                            return (
+                                toast(
+                                    "Falha ao criar agendamento: " +
+                                        error.message,
+                                    "error",
+                                ),
+                                false
+                            );
+                        await _salvarProcedimentosEPrevencao(
+                            row.id,
+                            procs,
+                            prev,
+                        );
+                        // Recorrência
+                        if (recorrencia !== "nenhuma" && repeticoes > 1) {
+                            const [y, m, d] = dataBase.split("-").map(Number);
+                            let criados = 1;
+                            for (let i = 1; i < repeticoes; i++) {
+                                const base = new Date(y, m - 1, d);
+                                if (recorrencia === "semanal")
+                                    base.setDate(base.getDate() + 7 * i);
+                                else if (recorrencia === "quinzenal")
+                                    base.setDate(base.getDate() + 14 * i);
+                                else if (recorrencia === "mensal")
+                                    base.setMonth(base.getMonth() + i);
+                                const novaData = toISO(base);
+                                if (estaBloqueado(novaData, hora)) continue;
+                                const { data: filho, error: errFilho } =
+                                    await supa
+                                        .from("agendamentos")
+                                        .insert({
+                                            paciente_id: pacienteId,
+                                            data: novaData,
+                                            hora,
+                                            duracao_min: duracao,
+                                            prioridade,
+                                            observacoes: obs || null,
+                                            status: "aguardando",
+                                            confirmado: "pendente",
+                                            serie_id: row.id,
+                                        })
+                                        .select("id")
+                                        .single();
+                                if (errFilho) {
+                                    console.warn(
+                                        "Falha ao criar ocorrência da recorrência",
+                                        errFilho,
+                                    );
+                                    continue;
+                                }
+                                await _salvarProcedimentosEPrevencao(
+                                    filho.id,
+                                    procs,
+                                    prev,
+                                );
+                                criados++;
+                            }
+                            toast(
+                                `${criados} agendamentos criados (recorrência ${recorrencia})`,
+                                "success",
+                            );
+                        } else {
+                            toast("Agendamento criado", "success");
+                        }
+                        dispararMensagemWhats(
+                            {
+                                nome,
+                                fone,
+                                data: dataBase,
+                                hora,
+                                procedimentos: procs,
+                            },
+                            true,
+                        );
                     }
-                    dispararMensagemWhats(
-                        {
-                            nome,
-                            fone,
-                            data: dataBase,
-                            hora,
-                            procedimentos: procs,
-                        },
-                        true,
-                    );
+                    await carregarAgendamentos();
+                    resetFormAgenda();
+                    atualizarTelas();
+                    mudarAba("lista-agenda");
+                    return false;
+                } finally {
+                    destravarBotao(btnSubmit, original);
                 }
-                await carregarAgendamentos();
-                resetFormAgenda();
-                atualizarTelas();
-                mudarAba("lista-agenda");
-                return false;
             }
             function estaBloqueado(data, hora) {
                 return dadosBloqueios.some((b) => {
@@ -6607,129 +6665,143 @@
             }
             async function confirmarEntradaFila() {
                 if (!pendingFilaItem) return;
-                const total = parseFloat($("entrada-valor").value) || 0;
-                const sel = document.querySelector(
-                    "#entrada-pay-options .pay-opt.selected",
-                );
-                if (!sel)
-                    return toast("Selecione a forma de pagamento", "warn");
-                let linhasPagamento;
-                const split =
-                    $("entrada-split-toggle") &&
-                    $("entrada-split-toggle").checked;
-                if (split) {
-                    const sel2 = document.querySelector(
-                        "#entrada-pay-options-2 .pay-opt.selected",
+                const btn = $("btn-confirmar-entrada");
+                const original = travarBotao(btn);
+                if (original === null && btn && btn.disabled) return; // já processando
+                try {
+                    const total = parseFloat($("entrada-valor").value) || 0;
+                    const sel = document.querySelector(
+                        "#entrada-pay-options .pay-opt.selected",
                     );
-                    if (!sel2)
+                    if (!sel)
+                        return toast("Selecione a forma de pagamento", "warn");
+                    let linhasPagamento;
+                    const split =
+                        $("entrada-split-toggle") &&
+                        $("entrada-split-toggle").checked;
+                    if (split) {
+                        const sel2 = document.querySelector(
+                            "#entrada-pay-options-2 .pay-opt.selected",
+                        );
+                        if (!sel2)
+                            return toast(
+                                "Selecione a 2ª forma de pagamento",
+                                "warn",
+                            );
+                        if (sel2.dataset.pay === sel.dataset.pay)
+                            return toast(
+                                "Escolha duas formas diferentes",
+                                "warn",
+                            );
+                        const v1 = parseFloat($("entrada-valor-1").value) || 0;
+                        const v2 = parseFloat($("entrada-valor-2").value) || 0;
+                        if (v1 <= 0 || v2 <= 0)
+                            return toast("Informe os dois valores", "warn");
+                        if (Math.abs(v1 + v2 - total) > 0.01)
+                            return toast(
+                                "Soma dos valores deve igualar o total",
+                                "warn",
+                            );
+                        linhasPagamento = [
+                            { forma: sel.dataset.pay, valor: v1 },
+                            { forma: sel2.dataset.pay, valor: v2 },
+                        ];
+                    } else {
+                        linhasPagamento = [
+                            { forma: sel.dataset.pay, valor: total },
+                        ];
+                    }
+                    const veioDeAgenda =
+                        pendingFilaItem.origem === "agendamento" &&
+                        pendingFilaItem.agendaOrigemId;
+                    const agendaId = pendingFilaItem.agendaOrigemId;
+
+                    const pacienteId = await upsertPaciente(
+                        pendingFilaItem.nome,
+                        pendingFilaItem.nascimento,
+                        pendingFilaItem.fone,
+                        pendingFilaItem.procedimentos[0],
+                    );
+                    if (!pacienteId)
+                        return toast("Falha ao salvar paciente", "error");
+
+                    // Faturamento contado a partir do pagamento na entrada (atendido_em já setado aqui),
+                    // igual ao comportamento do app anterior — mesmo que o atendimento em si ainda
+                    // não tenha sido chamado/finalizado. status continua 'aguardando' até a finalização.
+                    const { data: row, error } = await supa
+                        .from("atendimentos")
+                        .insert({
+                            paciente_id: pacienteId,
+                            agendamento_id: veioDeAgenda ? agendaId : null,
+                            origem: pendingFilaItem.origem,
+                            prioridade: pendingFilaItem.prioridade,
+                            status: "aguardando",
+                            pago_entrada: true,
+                            valor_total: total,
+                            atendido_em: new Date().toISOString(),
+                        })
+                        .select("id")
+                        .single();
+                    if (error)
                         return toast(
-                            "Selecione a 2ª forma de pagamento",
-                            "warn",
+                            "Falha ao registrar entrada: " + error.message,
+                            "error",
                         );
-                    if (sel2.dataset.pay === sel.dataset.pay)
-                        return toast("Escolha duas formas diferentes", "warn");
-                    const v1 = parseFloat($("entrada-valor-1").value) || 0;
-                    const v2 = parseFloat($("entrada-valor-2").value) || 0;
-                    if (v1 <= 0 || v2 <= 0)
-                        return toast("Informe os dois valores", "warn");
-                    if (Math.abs(v1 + v2 - total) > 0.01)
-                        return toast(
-                            "Soma dos valores deve igualar o total",
-                            "warn",
-                        );
-                    linhasPagamento = [
-                        { forma: sel.dataset.pay, valor: v1 },
-                        { forma: sel2.dataset.pay, valor: v2 },
-                    ];
-                } else {
-                    linhasPagamento = [
-                        { forma: sel.dataset.pay, valor: total },
-                    ];
-                }
-                const veioDeAgenda =
-                    pendingFilaItem.origem === "agendamento" &&
-                    pendingFilaItem.agendaOrigemId;
-                const agendaId = pendingFilaItem.agendaOrigemId;
 
-                const pacienteId = await upsertPaciente(
-                    pendingFilaItem.nome,
-                    pendingFilaItem.nascimento,
-                    pendingFilaItem.fone,
-                    pendingFilaItem.procedimentos[0],
-                );
-                if (!pacienteId)
-                    return toast("Falha ao salvar paciente", "error");
-
-                // Faturamento contado a partir do pagamento na entrada (atendido_em já setado aqui),
-                // igual ao comportamento do app anterior — mesmo que o atendimento em si ainda
-                // não tenha sido chamado/finalizado. status continua 'aguardando' até a finalização.
-                const { data: row, error } = await supa
-                    .from("atendimentos")
-                    .insert({
-                        paciente_id: pacienteId,
-                        agendamento_id: veioDeAgenda ? agendaId : null,
-                        origem: pendingFilaItem.origem,
-                        prioridade: pendingFilaItem.prioridade,
-                        status: "aguardando",
-                        pago_entrada: true,
-                        valor_total: total,
-                        atendido_em: new Date().toISOString(),
-                    })
-                    .select("id")
-                    .single();
-                if (error)
-                    return toast(
-                        "Falha ao registrar entrada: " + error.message,
-                        "error",
+                    await _salvarProcedimentosAtendimento(
+                        row.id,
+                        pendingFilaItem.procedimentos,
                     );
-
-                await _salvarProcedimentosAtendimento(
-                    row.id,
-                    pendingFilaItem.procedimentos,
-                );
-                const { error: errPag } = await supa
-                    .from("pagamentos")
-                    .insert(
-                        linhasPagamento.map((l) => ({
-                            atendimento_id: row.id,
-                            ...l,
-                        })),
-                    );
-                if (errPag) console.warn("Falha ao salvar pagamento", errPag);
-
-                if (veioDeAgenda) {
-                    // FK agendamento_id é "on delete set null": apagar a origem não derruba o atendimento recém-criado
-                    const { error: errDelAg } = await supa
-                        .from("agendamentos")
-                        .delete()
-                        .eq("id", agendaId);
-                    if (errDelAg)
-                        console.warn(
-                            "Falha ao remover agendamento de origem",
-                            errDelAg,
+                    const { error: errPag } = await supa
+                        .from("pagamentos")
+                        .insert(
+                            linhasPagamento.map((l) => ({
+                                atendimento_id: row.id,
+                                ...l,
+                            })),
                         );
-                }
+                    if (errPag)
+                        console.warn("Falha ao salvar pagamento", errPag);
 
-                await Promise.all([
-                    carregarFila(),
-                    carregarHistorico(),
-                    carregarAgendamentos(),
-                ]);
-                $("modal-cobrar-entrada").classList.remove("active");
-                if (!veioDeAgenda) {
-                    $("form-direto").reset();
-                    [
-                        "dir-sub-box",
-                        "dir-pm-box",
-                        "dir-lado-box",
-                        "dir-musc-box",
-                        "dir-outro-box",
-                    ].forEach((x) => ($(x).style.display = "none"));
+                    if (veioDeAgenda) {
+                        // FK agendamento_id é "on delete set null": apagar a origem não derruba o atendimento recém-criado
+                        const { error: errDelAg } = await supa
+                            .from("agendamentos")
+                            .delete()
+                            .eq("id", agendaId);
+                        if (errDelAg)
+                            console.warn(
+                                "Falha ao remover agendamento de origem",
+                                errDelAg,
+                            );
+                    }
+
+                    await Promise.all([
+                        carregarFila(),
+                        carregarHistorico(),
+                        carregarAgendamentos(),
+                    ]);
+                    $("modal-cobrar-entrada").classList.remove("active");
+                    if (!veioDeAgenda) {
+                        $("form-direto").reset();
+                        [
+                            "dir-sub-box",
+                            "dir-pm-box",
+                            "dir-lado-box",
+                            "dir-musc-box",
+                            "dir-outro-box",
+                        ].forEach((x) => ($(x).style.display = "none"));
+                    }
+                    atualizarTelas();
+                    toast(
+                        "Pagamento registrado e paciente na fila",
+                        "success",
+                    );
+                    if (veioDeAgenda) mudarAba("fila");
+                    pendingFilaItem = null;
+                } finally {
+                    destravarBotao(btn, original);
                 }
-                atualizarTelas();
-                toast("Pagamento registrado e paciente na fila", "success");
-                if (veioDeAgenda) mudarAba("fila");
-                pendingFilaItem = null;
             }
             async function chamarPaciente(id) {
                 const p = dadosFila.find((x) => x.id === id);
@@ -6855,78 +6927,99 @@
             }
             async function confirmarModalPagamento() {
                 if (!modalItemId) return;
-                const val = parseFloat($("modal-valor").value) || 0;
-                const sel = document.querySelector(
-                    "#modal-pay-options .pay-opt.selected",
-                );
-                if (!sel)
-                    return toast("Selecione uma forma de pagamento", "warn");
-                const idx = dadosFila.findIndex((x) => x.id === modalItemId);
-                if (idx < 0) return;
-                const p = dadosFila[idx];
-                let linhasPagamento;
-                const split =
-                    $("modal-split-toggle") && $("modal-split-toggle").checked;
-                if (split) {
-                    const sel2 = document.querySelector(
-                        "#modal-pay-options-2 .pay-opt.selected",
+                const btn = $("btn-confirmar-modal-pagamento");
+                const original = travarBotao(btn);
+                if (original === null && btn && btn.disabled) return; // já processando
+                try {
+                    const val = parseFloat($("modal-valor").value) || 0;
+                    const sel = document.querySelector(
+                        "#modal-pay-options .pay-opt.selected",
                     );
-                    if (!sel2)
+                    if (!sel)
                         return toast(
-                            "Selecione a 2ª forma de pagamento",
+                            "Selecione uma forma de pagamento",
                             "warn",
                         );
-                    if (sel2.dataset.pay === sel.dataset.pay)
-                        return toast("Escolha duas formas diferentes", "warn");
-                    const v1 = parseFloat($("modal-valor-1").value) || 0;
-                    const v2 = parseFloat($("modal-valor-2").value) || 0;
-                    if (v1 <= 0 || v2 <= 0)
-                        return toast("Informe os dois valores", "warn");
-                    if (Math.abs(v1 + v2 - val) > 0.01)
-                        return toast(
-                            "Soma dos valores deve igualar o total",
-                            "warn",
+                    const idx = dadosFila.findIndex(
+                        (x) => x.id === modalItemId,
+                    );
+                    if (idx < 0) return;
+                    const p = dadosFila[idx];
+                    let linhasPagamento;
+                    const split =
+                        $("modal-split-toggle") &&
+                        $("modal-split-toggle").checked;
+                    if (split) {
+                        const sel2 = document.querySelector(
+                            "#modal-pay-options-2 .pay-opt.selected",
                         );
-                    linhasPagamento = [
-                        { forma: sel.dataset.pay, valor: v1 },
-                        { forma: sel2.dataset.pay, valor: v2 },
-                    ];
-                } else {
-                    linhasPagamento = [{ forma: sel.dataset.pay, valor: val }];
+                        if (!sel2)
+                            return toast(
+                                "Selecione a 2ª forma de pagamento",
+                                "warn",
+                            );
+                        if (sel2.dataset.pay === sel.dataset.pay)
+                            return toast(
+                                "Escolha duas formas diferentes",
+                                "warn",
+                            );
+                        const v1 = parseFloat($("modal-valor-1").value) || 0;
+                        const v2 = parseFloat($("modal-valor-2").value) || 0;
+                        if (v1 <= 0 || v2 <= 0)
+                            return toast("Informe os dois valores", "warn");
+                        if (Math.abs(v1 + v2 - val) > 0.01)
+                            return toast(
+                                "Soma dos valores deve igualar o total",
+                                "warn",
+                            );
+                        linhasPagamento = [
+                            { forma: sel.dataset.pay, valor: v1 },
+                            { forma: sel2.dataset.pay, valor: v2 },
+                        ];
+                    } else {
+                        linhasPagamento = [
+                            { forma: sel.dataset.pay, valor: val },
+                        ];
+                    }
+                    const { error } = await supa
+                        .from("atendimentos")
+                        .update({
+                            status: "atendido",
+                            valor_total: val,
+                            atendido_em: new Date().toISOString(),
+                        })
+                        .eq("id", modalItemId);
+                    if (error)
+                        return toast(
+                            "Falha ao finalizar: " + error.message,
+                            "error",
+                        );
+                    // substitui o(s) pagamento(s) (pode já existir um registrado na entrada) pelo valor final confirmado agora
+                    await supa
+                        .from("pagamentos")
+                        .delete()
+                        .eq("atendimento_id", modalItemId);
+                    const { error: errPag } = await supa
+                        .from("pagamentos")
+                        .insert(
+                            linhasPagamento.map((l) => ({
+                                atendimento_id: modalItemId,
+                                ...l,
+                            })),
+                        );
+                    if (errPag)
+                        console.warn(
+                            "Falha ao salvar pagamento final",
+                            errPag,
+                        );
+                    await incrementarAtendimento(p.nome, p.nascimento);
+                    await Promise.all([carregarFila(), carregarHistorico()]);
+                    fecharModalPagamento();
+                    atualizarTelas();
+                    toast("Atendimento finalizado", "success");
+                } finally {
+                    destravarBotao(btn, original);
                 }
-                const { error } = await supa
-                    .from("atendimentos")
-                    .update({
-                        status: "atendido",
-                        valor_total: val,
-                        atendido_em: new Date().toISOString(),
-                    })
-                    .eq("id", modalItemId);
-                if (error)
-                    return toast(
-                        "Falha ao finalizar: " + error.message,
-                        "error",
-                    );
-                // substitui o(s) pagamento(s) (pode já existir um registrado na entrada) pelo valor final confirmado agora
-                await supa
-                    .from("pagamentos")
-                    .delete()
-                    .eq("atendimento_id", modalItemId);
-                const { error: errPag } = await supa
-                    .from("pagamentos")
-                    .insert(
-                        linhasPagamento.map((l) => ({
-                            atendimento_id: modalItemId,
-                            ...l,
-                        })),
-                    );
-                if (errPag)
-                    console.warn("Falha ao salvar pagamento final", errPag);
-                await incrementarAtendimento(p.nome, p.nascimento);
-                await Promise.all([carregarFila(), carregarHistorico()]);
-                fecharModalPagamento();
-                atualizarTelas();
-                toast("Atendimento finalizado", "success");
             }
 
             // ==================== SPLIT DE PAGAMENTO ====================
